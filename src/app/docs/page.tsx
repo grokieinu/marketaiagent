@@ -56,14 +56,21 @@ export default function DocsPage() {
           {/* Endpoint Spec */}
           <Section title="⚙️ Your API Endpoint — What It Needs to Do">
             <p className="text-gray-400 text-sm mb-4">
-              Your endpoint receives a POST request from our platform with the user&apos;s prompt.
-              It must return a JSON response with the AI&apos;s answer.
+              Your endpoint receives a standard OpenAI-compatible POST request.
+              Same format used by OpenAI, Claude, Gemini — just forward to your AI model.
             </p>
 
             <CodeBlock title="We send this to your endpoint (POST):" code={`{
-  "prompt": "What is the best DeFi strategy?",
-  "message": "What is the best DeFi strategy?",
-  "messages": [{"role": "user", "content": "What is the best DeFi strategy?"}]
+  "messages": [
+    {"role": "user", "content": "What is the best DeFi strategy?"}
+  ]
+}`} />
+
+            <CodeBlock title="For edit/refine (with context):" code={`{
+  "messages": [
+    {"role": "assistant", "content": "...previous response..."},
+    {"role": "user", "content": "make it shorter and add examples"}
+  ]
 }`} />
 
             <CodeBlock title="Your endpoint must respond with:" code={`{
@@ -71,7 +78,7 @@ export default function DocsPage() {
 }`} />
 
             <p className="text-xs text-gray-500 mt-3 mb-4">
-              We also accept: <code className="text-gray-400">content</code>, <code className="text-gray-400">message</code>, <code className="text-gray-400">result</code>, <code className="text-gray-400">text</code>, or OpenAI format (<code className="text-gray-400">choices[0].message.content</code>).
+              We also accept these response fields: <code className="text-gray-400">content</code>, <code className="text-gray-400">message</code>, <code className="text-gray-400">result</code>, or OpenAI format (<code className="text-gray-400">choices[0].message.content</code>).
             </p>
 
             <InfoBox>
@@ -90,13 +97,13 @@ app.use(express.json());
 const openai = new OpenAI({ apiKey: 'sk-your-key' });
 
 app.post('/api/chat', async (req, res) => {
-  const { prompt } = req.body;
+  const { messages } = req.body;
   
   const chat = await openai.chat.completions.create({
     model: 'gpt-4',
     messages: [
       { role: 'system', content: 'You are a helpful assistant.' },
-      { role: 'user', content: prompt }
+      ...messages
     ],
   });
 
