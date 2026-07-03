@@ -137,16 +137,31 @@ export default function Sandbox({ content, isFree, hasPaid, hideSource, onReques
     return ''
   }, [content, contentType, parsedFiles])
 
-  // Inject <base target="_self"> to keep all links inside the iframe
+  // Inject scripts to isolate iframe: prevent link navigation to parent
   const safePreviewHtml = useMemo(() => {
     if (!previewHtml) return ''
-    // Add base tag to prevent links from navigating the parent page
-    if (previewHtml.includes('<head>')) {
-      return previewHtml.replace('<head>', '<head><base target="_self">')
-    } else if (previewHtml.includes('<html>')) {
-      return previewHtml.replace('<html>', '<html><head><base target="_self"></head>')
+    const isolationScript = `<script>
+      document.addEventListener('click', function(e) {
+        var link = e.target.closest('a');
+        if (link) {
+          var href = link.getAttribute('href');
+          if (!href || href === '#' || href === '/' || href.startsWith('#') || href.startsWith('/')) {
+            e.preventDefault();
+            if (href && href.startsWith('#')) {
+              var el = document.querySelector(href);
+              if (el) el.scrollIntoView({behavior:'smooth'});
+            }
+          }
+        }
+      });
+    </script>`
+    
+    if (previewHtml.includes('</body>')) {
+      return previewHtml.replace('</body>', `${isolationScript}</body>`)
+    } else if (previewHtml.includes('</html>')) {
+      return previewHtml.replace('</html>', `${isolationScript}</html>`)
     }
-    return `<head><base target="_self"></head>${previewHtml}`
+    return `${previewHtml}${isolationScript}`
   }, [previewHtml])
 
   const canDownload = isFree || hasPaid
