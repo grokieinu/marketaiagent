@@ -108,8 +108,10 @@ export default function AgentDetailPage() {
         setResponse(data.response)
         setAttachments([])
         if (agent.price === 0) setHasPaid(true)
-        // Refresh agent stats from database
-        fetch(`/api/agent/${agentId}`, { cache: 'no-store' })
+        // Instant local update
+        setAgent((prev) => prev ? { ...prev, totalRequests: prev.totalRequests + 1 } : prev)
+        // Also refresh from database (bypass cache)
+        fetch(`/api/agent/${agentId}?t=${Date.now()}`, { cache: 'no-store' })
           .then(r => r.json())
           .then(d => { if (d.agent) setAgent(d.agent) })
       }
@@ -129,7 +131,14 @@ export default function AgentDetailPage() {
       const { Connection, Transaction, SystemProgram, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js')
 
       const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com')
-      const totalLamports = Math.floor(agent.price * LAMPORTS_PER_SOL)
+      // Ensure price is a valid number (handle comma separator from some locales)
+      const priceNum = typeof agent.price === 'string' ? parseFloat(String(agent.price).replace(',', '.')) : Number(agent.price)
+      if (isNaN(priceNum) || priceNum <= 0) {
+        setError('Invalid agent price')
+        setIsProcessing(false)
+        return
+      }
+      const totalLamports = Math.floor(priceNum * LAMPORTS_PER_SOL)
       const creatorLamports = Math.floor(totalLamports * 0.9)  // 90% to creator
       const treasuryLamports = totalLamports - creatorLamports  // 10% to platform
 

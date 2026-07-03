@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       specialization,
       aiModel,
       endpoint,
-      price: Math.max(0, parseInt(price) || 0),
+      price: Math.max(0, parseFloat(String(price).replace(',', '.')) || 0),
       priceSol: 0,
       ownerWallet: ownerWallet || 'anonymous',
     })

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (updates.price !== undefined) {
-      const price = Number(updates.price)
+      const price = Number(String(updates.price).replace(',', '.'))
       if (!isNaN(price) && price >= 0) {
         await sql`UPDATE agents SET price = ${price} WHERE id = ${agentId}`
       }

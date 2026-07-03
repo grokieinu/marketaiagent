@@ -72,7 +72,7 @@ export async function initDb() {
     specialization TEXT NOT NULL,
     ai_model TEXT NOT NULL,
     endpoint TEXT NOT NULL,
-    price INTEGER DEFAULT 0,
+    price REAL DEFAULT 0,
     price_sol REAL DEFAULT 0,
     owner_wallet TEXT NOT NULL,
     rating REAL DEFAULT 0,
@@ -125,6 +125,10 @@ export async function initDb() {
     created_at TIMESTAMP DEFAULT NOW(),
     processed_at TIMESTAMP
   )`
+  // Migration: change price column from INTEGER to REAL (for decimal SOL values)
+  try {
+    await sql`ALTER TABLE agents ALTER COLUMN price TYPE REAL`
+  } catch {}
 }
 
 // ===== AGENTS =====

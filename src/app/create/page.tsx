@@ -171,12 +171,11 @@ export default function CreateAgentPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">Price per Request (SOL)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={formData.price}
-                    onChange={(e) => updateForm('price', e.target.value)}
+                    onChange={(e) => updateForm('price', e.target.value.replace(',', '.'))}
                     placeholder="0 for free, or e.g. 0.05"
-                    step="0.001"
-                    min="0"
                     className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-primary-500/50"
                   />
                   <p className="text-xs text-gray-500 mt-1">

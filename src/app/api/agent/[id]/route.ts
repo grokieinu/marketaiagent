@@ -10,5 +10,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
   const recentRequests = await getRequestsByAgent(params.id)
   const reviews = await getReviewsByAgent(params.id)
-  return NextResponse.json({ success: true, agent, recentRequests, reviews })
+  return NextResponse.json({ success: true, agent, recentRequests, reviews }, {
+    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
+  })
 }

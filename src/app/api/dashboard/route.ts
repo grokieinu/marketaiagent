@@ -27,11 +27,11 @@ export async function GET(request: NextRequest) {
       }
       // Sort all by date descending and limit
       receivedRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      receivedRequests = receivedRequests.slice(0, 100)
+      receivedRequests = receivedRequests.slice(0, 10)
     }
 
     // Get sent requests (by this wallet)
-    const sentRows = await sql`SELECT r.*, a.name as agent_name FROM requests r JOIN agents a ON r.agent_id = a.id WHERE r.user_wallet = ${wallet} ORDER BY r.created_at DESC LIMIT 100`
+    const sentRows = await sql`SELECT r.*, a.name as agent_name FROM requests r JOIN agents a ON r.agent_id = a.id WHERE r.user_wallet = ${wallet} ORDER BY r.created_at DESC LIMIT 10`
     const sentRequests = sentRows.map((r: any) => ({
       id: r.id, agentId: r.agent_id, agentName: r.agent_name,
       prompt: r.prompt, amount: r.credits_cost, createdAt: r.created_at,

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { FaCode, FaEye, FaImage, FaVideo, FaMusic, FaGlobe, FaDownload, FaExpand, FaLock } from 'react-icons/fa'
+import { FaCode, FaEye, FaImage, FaVideo, FaMusic, FaGlobe, FaDownload, FaExpand, FaCompress, FaLock } from 'react-icons/fa'
 
 interface SandboxProps {
   content: string
@@ -137,6 +137,18 @@ export default function Sandbox({ content, isFree, hasPaid, hideSource, onReques
     return ''
   }, [content, contentType, parsedFiles])
 
+  // Inject <base target="_self"> to keep all links inside the iframe
+  const safePreviewHtml = useMemo(() => {
+    if (!previewHtml) return ''
+    // Add base tag to prevent links from navigating the parent page
+    if (previewHtml.includes('<head>')) {
+      return previewHtml.replace('<head>', '<head><base target="_self">')
+    } else if (previewHtml.includes('<html>')) {
+      return previewHtml.replace('<html>', '<html><head><base target="_self"></head>')
+    }
+    return `<head><base target="_self"></head>${previewHtml}`
+  }, [previewHtml])
+
   const canDownload = isFree || hasPaid
 
   const handleDownload = async () => {
@@ -173,7 +185,7 @@ export default function Sandbox({ content, isFree, hasPaid, hideSource, onReques
   if (contentType === 'text') return null
 
   return (
-    <div className={`rounded-xl border border-white/10 overflow-hidden ${fullscreen ? 'fixed inset-4 z-50 bg-dark-950' : ''}`}>
+    <div className={`rounded-xl border border-white/10 overflow-hidden ${fullscreen ? 'fixed inset-0 z-[9999] bg-dark-950 rounded-none' : ''}`}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/10">
         <div className="flex items-center gap-2">
@@ -196,7 +208,7 @@ export default function Sandbox({ content, isFree, hasPaid, hideSource, onReques
             <span>{canDownload ? (contentType === 'multifile' ? 'Download ZIP' : 'Download') : 'Pay to Download'}</span>
           </button>
           <button onClick={() => setFullscreen(!fullscreen)} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-white">
-            <FaExpand />
+            {fullscreen ? <FaCompress /> : <FaExpand />}
           </button>
         </div>
       </div>
@@ -207,9 +219,9 @@ export default function Sandbox({ content, isFree, hasPaid, hideSource, onReques
         onContextMenu={(e) => { if (!canDownload) e.preventDefault() }}
       >
         {/* HTML / Multi-file preview */}
-        {(contentType === 'html' || contentType === 'multifile' || contentType === 'code') && previewHtml && (
+        {(contentType === 'html' || contentType === 'multifile' || contentType === 'code') && safePreviewHtml && (
           <iframe
-            srcDoc={previewHtml}
+            srcDoc={safePreviewHtml}
             className="w-full h-full bg-white"
             sandbox="allow-scripts"
             style={{ minHeight: fullscreen ? '100%' : '500px' }}

@@ -187,7 +187,7 @@ export default function DashboardPage() {
                             </div>
                             <div>
                               <label className="text-xs text-gray-500">Price (SOL, 0 = free)</label>
-                              <input type="number" step="0.001" min="0" value={editForm.price ?? ''} onChange={(e) => setEditForm({ ...editForm, price: parseFloat(e.target.value) || 0 })}
+                              <input type="text" inputMode="decimal" value={editForm.price ?? ''} onChange={(e) => setEditForm({ ...editForm, price: parseFloat(e.target.value.replace(',', '.')) || 0 })}
                                 className="w-full mt-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-primary-500/50" />
                             </div>
                           </div>
