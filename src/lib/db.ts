@@ -135,7 +135,7 @@ export async function initDb() {
 
 export async function getAllAgents(): Promise<Agent[]> {
   await initDb()
-  const rows = await sql`SELECT * FROM agents WHERE is_active = true ORDER BY total_requests DESC`
+  const rows = await sql`SELECT * FROM agents WHERE is_active = true OR is_active = 'true' ORDER BY total_requests DESC`
   return rows.map(mapAgent)
 }
 
@@ -175,7 +175,7 @@ function mapAgent(row: any): Agent {
     ratingCount: row.rating_count,
     totalRequests: row.total_requests,
     totalEarnings: row.total_earnings,
-    isActive: row.is_active,
+    isActive: row.is_active === true || row.is_active === 'true' || row.is_active === 't',
     createdAt: row.created_at,
   }
 }

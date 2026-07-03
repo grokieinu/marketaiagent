@@ -45,8 +45,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (updates.isActive !== undefined) {
-      const active = Boolean(updates.isActive)
-      await sql`UPDATE agents SET is_active = ${active} WHERE id = ${agentId}`
+      if (updates.isActive === true || updates.isActive === 'true') {
+        await sql`UPDATE agents SET is_active = true WHERE id = ${agentId}`
+      } else {
+        await sql`UPDATE agents SET is_active = false WHERE id = ${agentId}`
+      }
     }
 
     const updated = await getAgentById(agentId)
