@@ -11,47 +11,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing agentId or wallet' }, { status: 400 })
     }
 
+    if (!updates || Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No updates provided' }, { status: 400 })
+    }
+
     // Verify ownership
     const agent = await getAgentById(agentId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     if (agent.ownerWallet !== wallet) {
-      return NextResponse.json({ error: 'Unauthorized. You are not the owner of this agent.' }, { status: 403 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Build update query
     const sql = neon(process.env.DATABASE_URL!)
-    const allowedFields: Record<string, string> = {
-      name: 'name',
-      description: 'description',
-      price: 'price',
-      endpoint: 'endpoint',
-      isActive: 'is_active',
+
+    // Update each field individually
+    if (updates.name !== undefined && typeof updates.name === 'string' && updates.name.length > 0 && updates.name.length <= 32) {
+      await sql`UPDATE agents SET name = ${updates.name} WHERE id = ${agentId}`
     }
 
-    for (const [key, value] of Object.entries(updates || {})) {
-      const dbField = allowedFields[key]
-      if (!dbField) continue
+    if (updates.description !== undefined && typeof updates.description === 'string') {
+      await sql`UPDATE agents SET description = ${updates.description} WHERE id = ${agentId}`
+    }
 
-      if (key === 'name') {
-        if (typeof value !== 'string' || value.length > 32 || value.length === 0) continue
-        await sql`UPDATE agents SET name = ${value as string} WHERE id = ${agentId}`
-      } else if (key === 'description') {
-        await sql`UPDATE agents SET description = ${value as string} WHERE id = ${agentId}`
-      } else if (key === 'price') {
-        const price = parseFloat(value as string)
-        if (isNaN(price) || price < 0) continue
+    if (updates.price !== undefined) {
+      const price = Number(updates.price)
+      if (!isNaN(price) && price >= 0) {
         await sql`UPDATE agents SET price = ${price} WHERE id = ${agentId}`
-      } else if (key === 'endpoint') {
-        if (typeof value !== 'string' || !value.startsWith('http')) continue
-        await sql`UPDATE agents SET endpoint = ${value as string} WHERE id = ${agentId}`
-      } else if (key === 'isActive') {
-        await sql`UPDATE agents SET is_active = ${Boolean(value)} WHERE id = ${agentId}`
       }
+    }
+
+    if (updates.endpoint !== undefined && typeof updates.endpoint === 'string' && updates.endpoint.startsWith('http')) {
+      await sql`UPDATE agents SET endpoint = ${updates.endpoint} WHERE id = ${agentId}`
+    }
+
+    if (updates.isActive !== undefined) {
+      const active = Boolean(updates.isActive)
+      await sql`UPDATE agents SET is_active = ${active} WHERE id = ${agentId}`
     }
 
     const updated = await getAgentById(agentId)
     return NextResponse.json({ success: true, agent: updated })
-  } catch {
-    return NextResponse.json({ error: 'Failed to update agent' }, { status: 500 })
+  } catch (err: any) {
+    console.error('Update agent error:', err)
+    return NextResponse.json({ error: err.message || 'Failed to update agent' }, { status: 500 })
   }
 }

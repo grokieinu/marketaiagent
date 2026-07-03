@@ -106,10 +106,12 @@ export default function AgentDetailPage() {
         setError(data.error || 'Something went wrong')
       } else {
         setResponse(data.response)
-        setAgent((prev) => prev ? { ...prev, totalRequests: prev.totalRequests + 1 } : prev)
         setAttachments([])
-        // Free agents: already paid (no cost)
         if (agent.price === 0) setHasPaid(true)
+        // Refresh agent stats from database
+        fetch(`/api/agent/${agentId}`, { cache: 'no-store' })
+          .then(r => r.json())
+          .then(d => { if (d.agent) setAgent(d.agent) })
       }
     } catch {
       setError('Failed to reach server')
@@ -524,22 +526,20 @@ export default function AgentDetailPage() {
         >
           <h3 className="text-sm font-medium text-white mb-3">Rate this agent</h3>
           <div className="space-y-3">
-            <div className="flex items-center gap-4">
-              <input
-                type="text"
-                value={reviewName}
-                onChange={(e) => setReviewName(e.target.value)}
-                placeholder="Name (optional)"
-                className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-primary-500/50"
-              />
-              <div className="flex items-center gap-0.5">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button key={star} onClick={() => setReviewRating(star)} className="p-0.5">
-                    <FaStar className={`text-lg ${star <= reviewRating ? 'text-yellow-400' : 'text-gray-600'}`} />
-                  </button>
-                ))}
-              </div>
+            <div className="flex items-center gap-1 mb-2">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button key={star} onClick={() => setReviewRating(star)} className="p-1">
+                  <FaStar className={`text-xl ${star <= reviewRating ? 'text-yellow-400' : 'text-gray-600'}`} />
+                </button>
+              ))}
             </div>
+            <input
+              type="text"
+              value={reviewName}
+              onChange={(e) => setReviewName(e.target.value)}
+              placeholder="Name (optional)"
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-primary-500/50"
+            />
             <textarea
               value={reviewComment}
               onChange={(e) => setReviewComment(e.target.value)}
