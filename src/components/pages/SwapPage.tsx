@@ -1,0 +1,817 @@
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useWalletContext } from '@/context/WalletContext';
+import { getSOLBalance, getSPLTokenBalances, type TokenBalance } from '@/lib/solana';
+import { getActivePrivateKey } from '@/lib/wallet-manager';
+import { getSwapQuote, executeSwap, POPULAR_TOKENS, searchTokens, toRawAmount, fromRawAmount, type JupiterQuote, type JupiterTokenInfo } from '@/lib/jupiter';
+import { getTokenMetadataBatch } from '@/lib/cache-utils';
+import { saveTransaction, type TransactionRecord } from '@/lib/storage';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { Toast } from '@/components/ui/Toast';
+
+interface SwapToken {
+  symbol: string;
+  name: string;
+  mint: string;
+  decimals: number;
+  logoURI?: string;
+  balance: number;
+}
+
+export function SwapPage() {
+  const { wallet, setCurrentPage, rpcEndpoint } = useWalletContext();
+  const [tokens, setTokens] = useState<SwapToken[]>([]);
+  const [fromToken, setFromToken] = useState<SwapToken | null>(null);
+  const [toToken, setToToken] = useState<SwapToken | null>(null);
+  const [fromAmount, setFromAmount] = useState('');
+  const [toAmount, setToAmount] = useState('');
+  const [quote, setQuote] = useState<JupiterQuote | null>(null);
+  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  const [isLoadingTokens, setIsLoadingTokens] = useState(true);
+  const [slippage, setSlippage] = useState(50); // 0.5% default
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [showFromPicker, setShowFromPicker] = useState(false);
+  const [showToPicker, setShowToPicker] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [txSignature, setTxSignature] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<JupiterTokenInfo[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounce ref for search
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load tokens
+  const fetchTokens = useCallback(async () => {
+    if (!wallet) return;
+    setIsLoadingTokens(true);
+    try {
+      const [solBalance, splTokens] = await Promise.all([
+        getSOLBalance(wallet.publicKey, rpcEndpoint).catch(() => 0),
+        getSPLTokenBalances(wallet.publicKey, rpcEndpoint).catch(() => []),
+      ]);
+
+      const tokenList: SwapToken[] = [];
+
+      // Add popular tokens with balance info
+      for (const pt of POPULAR_TOKENS) {
+        if (pt.symbol === 'SOL') {
+          tokenList.push({ ...pt, balance: solBalance });
+        } else {
+          const spl = splTokens.find((t) => t.mint === pt.mint);
+          tokenList.push({ ...pt, balance: spl?.balance || 0 });
+        }
+      }
+
+      // Add SPL tokens not in popular list
+      const nonPopularTokens = splTokens.filter(
+        (spl) => !POPULAR_TOKENS.find((pt) => pt.mint === spl.mint) && spl.balance > 0
+      );
+
+      // Batch fetch metadata untuk semua non-popular tokens (PARALLEL, bukan sequential!)
+      if (nonPopularTokens.length > 0) {
+        const mints = nonPopularTokens.map((t) => t.mint);
+        const metadataMap = await getTokenMetadataBatch(mints);
+
+        for (const spl of nonPopularTokens) {
+          let logoURI = spl.logoURI;
+          let symbol = spl.symbol || spl.mint.slice(0, 4);
+          let name = spl.name || 'Unknown';
+
+          // Get dari cache jika ada
+          const metadata = metadataMap.get(spl.mint);
+          if (metadata) {
+            symbol = metadata.symbol;
+            name = metadata.name;
+            logoURI = metadata.logoURI || logoURI;
+          }
+
+          tokenList.push({
+            symbol,
+            name,
+            mint: spl.mint,
+            decimals: spl.decimals,
+            logoURI,
+            balance: spl.balance,
+          });
+        }
+      }
+
+      setTokens(tokenList);
+
+      // Default: SOL → USDC
+      const sol = tokenList.find((t) => t.symbol === 'SOL');
+      const usdc = tokenList.find((t) => t.symbol === 'USDC');
+      if (sol) setFromToken(sol);
+      if (usdc) setToToken(usdc);
+    } catch {
+      setTokens([]);
+    } finally {
+      setIsLoadingTokens(false);
+    }
+  }, [wallet, rpcEndpoint]);
+
+  useEffect(() => {
+    fetchTokens();
+    
+    // Cleanup debounce on unmount
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [fetchTokens]);
+
+  // Fetch quote when inputs change
+  useEffect(() => {
+    const fetchQuote = async () => {
+      if (!fromToken || !toToken || !fromAmount || parseFloat(fromAmount) <= 0) {
+        setQuote(null);
+        setToAmount('');
+        setError('');
+        return;
+      }
+
+      setIsLoadingQuote(true);
+      setError('');
+
+      try {
+        const rawAmount = toRawAmount(parseFloat(fromAmount), fromToken.decimals);
+        const result = await getSwapQuote(fromToken.mint, toToken.mint, rawAmount, slippage);
+
+        if (result) {
+          setQuote(result);
+          setToAmount(fromRawAmount(result.outAmount, toToken.decimals).toFixed(6));
+
+          // Show insufficient balance warning but still display the quote
+          if (parseFloat(fromAmount) > fromToken.balance) {
+            setError(`Insufficient ${fromToken.symbol} balance. You have ${fromToken.balance.toFixed(4)}.`);
+          }
+        } else {
+          setQuote(null);
+          setToAmount('');
+          setError('No route found for this swap. Try a different amount or token pair.');
+        }
+      } catch {
+        setQuote(null);
+        setError('Failed to get quote. Please try again.');
+      } finally {
+        setIsLoadingQuote(false);
+      }
+    };
+
+    const debounce = setTimeout(fetchQuote, 300);
+    return () => clearTimeout(debounce);
+  }, [fromToken, toToken, fromAmount, slippage]);
+
+  const handleSwap = () => {
+    if (!wallet || !quote || !fromToken || !toToken) return;
+    if (parseFloat(fromAmount) > fromToken.balance) {
+      setError(`Insufficient ${fromToken.symbol} balance. You have ${fromToken.balance.toFixed(4)}.`);
+      return;
+    }
+    setError('');
+    setShowConfirm(true);
+  };
+
+  const executeConfirmedSwap = async () => {
+    if (!wallet || !quote || !fromToken || !toToken) return;
+    
+    // Guard: prevent double execution if already swapping
+    if (isSwapping) {
+      console.warn('⚠ Swap already in progress, ignoring duplicate click');
+      return;
+    }
+
+    const privateKey = getActivePrivateKey();
+    if (!privateKey) {
+      setError('Session expired. Please unlock your wallet again.');
+      setShowConfirm(false);
+      return;
+    }
+
+    setIsSwapping(true);
+    setError('');
+    setShowConfirm(false);
+    console.log(`→ UI: Starting swap execution for ${fromAmount} ${fromToken.symbol} → ${toToken.symbol}`);
+
+    try {
+      const result = await executeSwap(quote, wallet.publicKey, privateKey, rpcEndpoint);
+
+      if (result.success && result.signature) {
+        console.log(`✓ UI: Swap successful! Signature: ${result.signature}`);
+        
+        // Update UI first to show success
+        setTxSignature(result.signature);
+        setToast({ message: `✓ Swap successful! ${fromToken.symbol} → ${toToken.symbol}`, type: 'success' });
+        
+        // Save transaction record (non-blocking)
+        // If save fails, transaction is still on blockchain - don't show error
+        try {
+          const txRecord: TransactionRecord = {
+            id: crypto.randomUUID(),
+            walletId: wallet.id,
+            signature: result.signature,
+            type: 'send',
+            amount: parseFloat(fromAmount),
+            token: `${fromToken.symbol}→${toToken.symbol}`,
+            to: 'Jupiter Swap',
+            from: wallet.publicKey,
+            timestamp: Date.now(),
+            status: 'confirmed',
+          };
+          await saveTransaction(txRecord);
+          console.log(`✓ UI: Transaction record saved`);
+        } catch (saveErr) {
+          // Log but don't show error to user - transaction succeeded on blockchain
+          const saveErrMsg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+          console.warn(`⚠ UI: Failed to save transaction record locally, but transaction is on blockchain`, saveErrMsg);
+        }
+        
+        // Clear form after short delay to show success
+        setTimeout(() => resetSwap(), 2000);
+      } else {
+        const errorMsg = result.error || 'Swap failed. Please try again.';
+        console.error(`✗ UI: Swap failed - ${errorMsg}`);
+        setError(errorMsg);
+        setToast({ message: `✗ ${errorMsg}`, type: 'error' });
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Swap failed.';
+      console.error(`✗ UI: Swap threw exception - ${errorMsg}`, err);
+      setError(errorMsg);
+      setToast({ message: `✗ ${errorMsg}`, type: 'error' });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
+
+  const resetSwap = () => {
+    setTxSignature('');
+    setFromAmount('');
+    setToAmount('');
+    setQuote(null);
+    fetchTokens();
+  };
+
+  const handleFlipTokens = () => {
+    const temp = fromToken;
+    setFromToken(toToken);
+    setToToken(temp);
+    setFromAmount(toAmount);
+    setToAmount('');
+    setQuote(null);
+  };
+
+  const handleMaxAmount = () => {
+    if (!fromToken) return;
+    if (fromToken.symbol === 'SOL') {
+      setFromAmount(Math.max(0, fromToken.balance - 0.01).toFixed(6));
+    } else {
+      setFromAmount(fromToken.balance.toString());
+    }
+  };
+
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    const trimmed = query.trim();
+    
+    // Clear previous timeout
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    // If less than 2 chars, immediately clear results
+    if (trimmed.length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    // First: show local popular token results immediately
+    const localMatches: JupiterTokenInfo[] = POPULAR_TOKENS.filter((t) =>
+      t.symbol.toLowerCase().includes(trimmed.toLowerCase()) ||
+      t.name.toLowerCase().includes(trimmed.toLowerCase())
+    ).map((t) => ({
+      address: t.mint,
+      symbol: t.symbol,
+      name: t.name,
+      decimals: t.decimals,
+      logoURI: t.logoURI || undefined,
+    }));
+
+    // Show local results immediately if found
+    if (localMatches.length > 0) {
+      setSearchResults(localMatches);
+      console.log(`→ Found ${localMatches.length} local popular tokens for "${trimmed}"`);
+    }
+
+    // ALWAYS trigger remote search (to find tokens outside popular list)
+    setIsSearching(true);
+    
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        console.log(`→ Searching all Solana tokens for "${trimmed}"...`);
+        const results = await searchTokens(trimmed);
+        
+        // Merge: local matches first, then remote (avoid duplicates)
+        const seen = new Set(localMatches.map((t) => t.address));
+        const merged = [...localMatches];
+        
+        for (const r of results) {
+          if (!seen.has(r.address)) {
+            merged.push(r);
+            seen.add(r.address);
+          }
+        }
+        
+        setSearchResults(merged);
+        console.log(`✓ Search complete for "${trimmed}": ${merged.length} total results (${localMatches.length} popular + ${merged.length - localMatches.length} other)`);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`✗ Search error for "${trimmed}":`, errMsg);
+        
+        // If remote search fails, still show local matches
+        if (localMatches.length > 0) {
+          setSearchResults(localMatches);
+          console.warn(`⚠ Remote search failed, showing ${localMatches.length} popular tokens only`);
+        } else {
+          setSearchResults([]);
+        }
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300); // 300ms debounce to avoid spamming API
+  };
+
+  const renderTokenPicker = (
+    isFrom: boolean,
+    onClose: () => void
+  ) => {
+    const filteredTokens = searchQuery.length >= 2
+      ? [] // When searching, show search results instead
+      : isFrom
+        ? tokens.filter((t) => t.balance > 0) // "You pay" only shows owned tokens
+        : tokens;
+
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-start justify-center pt-12 animate-fade-in">
+        <div className="bg-[#0c1929] border border-[#1a3a5c] w-full max-w-md rounded-2xl p-5 mx-4 flex flex-col" style={{ maxHeight: '75vh' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-base text-white">Select Token</h3>
+            <button onClick={() => { onClose(); setSearchQuery(''); setSearchResults([]); }} className="text-gray-400 hover:text-white">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Search Input */}
+          <div className="mb-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Search by name, symbol, or paste CA..."
+              className="w-full px-4 py-2.5 rounded-xl bg-[#1a2d4a] border border-[#2a4a6a] text-sm text-white placeholder-gray-500 outline-none focus:border-cyan-500/50 transition-colors"
+              spellCheck={false}
+              autoFocus
+            />
+          </div>
+
+          {/* Token List */}
+          <div className="space-y-1 overflow-y-auto flex-1">
+            {isSearching && (
+              <div className="flex flex-col items-center justify-center py-6 gap-3">
+                <div className="w-5 h-5 border-2 border-gray-700 border-t-cyan-400 rounded-full animate-spin" />
+                <p className="text-xs text-gray-400 text-center">
+                  Searching all Solana tokens...
+                </p>
+              </div>
+            )}
+
+            {/* Search Results */}
+            {!isSearching && searchQuery.length >= 2 && searchResults.length > 0 && (
+              searchResults.map((token) => (
+                <button
+                  key={token.address}
+                  onClick={() => {
+                    const swapToken: SwapToken = {
+                      symbol: token.symbol,
+                      name: token.name,
+                      mint: token.address,
+                      decimals: token.decimals,
+                      logoURI: token.logoURI,
+                      balance: 0,
+                    };
+                    if (isFrom) {
+                      setFromToken(swapToken);
+                      if (toToken?.mint === token.address) setToToken(null);
+                    } else {
+                      setToToken(swapToken);
+                      if (fromToken?.mint === token.address) setFromToken(null);
+                    }
+                    setFromAmount('');
+                    setToAmount('');
+                    setQuote(null);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#1a2d4a] transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full overflow-hidden bg-[#1a1a2e] flex items-center justify-center">
+                      {token.logoURI ? (
+                        <img src={token.logoURI} alt={token.symbol} className="w-8 h-8 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      ) : (
+                        <span className="text-[10px] text-gray-400 font-bold">{token.symbol.slice(0, 3)}</span>
+                      )}
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-white">{token.symbol}</p>
+                      <p className="text-xs text-gray-500 max-w-[160px] truncate">{token.name}</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-gray-600 max-w-[80px] truncate">{token.address ? `${token.address.slice(0, 4)}...${token.address.slice(-4)}` : ''}</span>
+                </button>
+              ))
+            )}
+
+            {/* No results */}
+            {!isSearching && searchQuery.length >= 2 && searchResults.length === 0 && (
+              <div className="text-center py-6">
+                <p className="text-gray-500 text-sm mb-2">No tokens found</p>
+                <p className="text-xs text-gray-600">Searched popular tokens and all Solana contracts</p>
+              </div>
+            )}
+
+            {/* Default token list (when not searching) */}
+            {searchQuery.length < 2 && filteredTokens.map((token) => (
+              <button
+                key={token.mint}
+                onClick={() => {
+                  if (isFrom) {
+                    setFromToken(token);
+                    if (toToken?.mint === token.mint) setToToken(null);
+                  } else {
+                    setToToken(token);
+                    if (fromToken?.mint === token.mint) setFromToken(null);
+                  }
+                  setFromAmount('');
+                  setToAmount('');
+                  setQuote(null);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  onClose();
+                }}
+                className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-[#1a2d4a] transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full overflow-hidden bg-[#1a1a2e] flex items-center justify-center">
+                    {token.logoURI ? (
+                      <img src={token.logoURI} alt={token.symbol} className="w-8 h-8 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <span className="text-[10px] text-gray-400 font-bold">{token.symbol.slice(0, 3)}</span>
+                    )}
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-white">{token.symbol}</p>
+                    <p className="text-xs text-gray-500">{token.name}</p>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-400">
+                  {token.balance > 0 ? token.balance.toFixed(4) : '0'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (!wallet) return null;
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#050a12] animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-4 pb-4">
+        <button
+          onClick={() => setCurrentPage('dashboard')}
+          className="p-1 text-gray-400 hover:text-white transition-colors"
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h1 className="text-lg font-bold text-white">Swap</h1>
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="p-1 text-gray-400 hover:text-white transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Slippage Settings */}
+      {showSettings && (
+        <div className="mx-5 mb-4 p-4 rounded-xl bg-[#0c1929] border border-[#1a3a5c]">
+          <p className="text-xs text-gray-400 mb-2">Slippage Tolerance</p>
+          <div className="flex items-center gap-2">
+            {[25, 50, 100, 300].map((bps) => (
+              <button
+                key={bps}
+                onClick={() => setSlippage(bps)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  slippage === bps
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                    : 'bg-[#1a2a3a] text-gray-400 hover:text-white'
+                }`}
+              >
+                {(bps / 100).toFixed(1)}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="px-5 flex-1">
+        {isLoadingTokens ? (
+          <div className="flex items-center justify-center py-20">
+            <LoadingSpinner size="lg" text="Loading tokens..." />
+          </div>
+        ) : (
+          <>
+            {/* From Token */}
+            <div className="rounded-xl bg-[#0c1929] border border-[#1a3a5c] p-4 mb-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-gray-500">You pay</span>
+                {fromToken && (
+                  <span className="text-xs text-gray-500">
+                    Balance: {fromToken.balance.toFixed(4)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowFromPicker(true)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1a2d4a] border border-[#2a4a6a] hover:border-cyan-500/50 transition-all shrink-0"
+                >
+                  {fromToken?.logoURI ? (
+                    <img src={fromToken.logoURI} alt="" className="w-6 h-6 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : fromToken ? (
+                    <div className="w-6 h-6 rounded-full bg-[#2a3a5a] flex items-center justify-center">
+                      <span className="text-[8px] text-gray-300 font-bold">{fromToken.symbol.slice(0, 2)}</span>
+                    </div>
+                  ) : null}
+                  <span className="text-sm font-medium text-white">{fromToken?.symbol || 'Select'}</span>
+                  <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <div className="flex-1 text-right">
+                  <input
+                    type="number"
+                    value={fromAmount}
+                    onChange={(e) => setFromAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full text-right text-xl font-bold text-white bg-transparent outline-none placeholder-gray-600"
+                    step="any"
+                    min="0"
+                  />
+                </div>
+                <button
+                  onClick={handleMaxAmount}
+                  className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium px-2 py-1 rounded bg-cyan-500/10"
+                >
+                  MAX
+                </button>
+              </div>
+            </div>
+
+            {/* Flip Button */}
+            <div className="flex justify-center -my-1 relative z-10">
+              <button
+                onClick={handleFlipTokens}
+                className="w-9 h-9 rounded-full bg-[#1a2d4a] border-2 border-[#0c1929] flex items-center justify-center hover:bg-[#1e3555] transition-all"
+              >
+                <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+              </button>
+            </div>
+
+            {/* To Token */}
+            <div className="rounded-xl bg-[#0c1929] border border-[#1a3a5c] p-4 mt-2 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-gray-500">You receive</span>
+                {toToken && (
+                  <span className="text-xs text-gray-500">
+                    Balance: {toToken.balance.toFixed(4)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowToPicker(true)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1a2d4a] border border-[#2a4a6a] hover:border-cyan-500/50 transition-all shrink-0"
+                >
+                  {toToken?.logoURI ? (
+                    <img src={toToken.logoURI} alt="" className="w-6 h-6 rounded-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : toToken ? (
+                    <div className="w-6 h-6 rounded-full bg-[#2a3a5a] flex items-center justify-center">
+                      <span className="text-[8px] text-gray-300 font-bold">{toToken.symbol.slice(0, 2)}</span>
+                    </div>
+                  ) : null}
+                  <span className="text-sm font-medium text-white">{toToken?.symbol || 'Select'}</span>
+                  <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <div className="flex-1 text-right">
+                  {isLoadingQuote ? (
+                    <div className="flex justify-end">
+                      <div className="w-4 h-4 border-2 border-gray-700 border-t-cyan-400 rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <p className="text-xl font-bold text-white">
+                      {toAmount || '0.00'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Quote Details */}
+            {quote && (
+              <div className="rounded-xl bg-[#0c1929] border border-[#1a3a5c] p-4 mb-4 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Rate</span>
+                  <span className="text-gray-300">
+                    1 {fromToken?.symbol} ≈ {(parseFloat(toAmount) / parseFloat(fromAmount)).toFixed(4)} {toToken?.symbol}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Price Impact</span>
+                  <span className={`${parseFloat(quote.priceImpactPct) * 100 > 1 ? 'text-red-400' : 'text-gray-300'}`}>
+                    {(parseFloat(quote.priceImpactPct) * 100).toFixed(3)}%
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Min Received</span>
+                  <span className="text-gray-300">
+                    {fromRawAmount(quote.otherAmountThreshold, toToken?.decimals || 6).toFixed(4)} {toToken?.symbol}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Route</span>
+                  <span className="text-gray-300">
+                    {quote.routePlan.map((r) => r.swapInfo.label).join(' → ')}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <p className="text-sm text-red-400 bg-red-900/20 p-3 rounded-lg mb-4">{error}</p>
+            )}
+
+            {/* Swap Button */}
+            <button
+              onClick={handleSwap}
+              disabled={!quote || isSwapping || !fromAmount || parseFloat(fromAmount) <= 0}
+              className="w-full py-4 rounded-xl font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white"
+            >
+              {isSwapping ? (
+                <LoadingSpinner size="sm" />
+              ) : !fromToken || !toToken ? (
+                'Select tokens'
+              ) : !fromAmount || parseFloat(fromAmount) <= 0 ? (
+                'Enter amount'
+              ) : isLoadingQuote ? (
+                'Getting quote...'
+              ) : !quote ? (
+                'No route available'
+              ) : parseFloat(fromAmount) > (fromToken?.balance || 0) ? (
+                `Insufficient ${fromToken?.symbol} balance`
+              ) : (
+                `Swap ${fromToken?.symbol} → ${toToken?.symbol}`
+              )}
+            </button>
+
+            {/* Powered by */}
+            <p className="text-center text-[10px] text-gray-600 mt-3">
+              Powered by Jupiter Aggregator
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Token Pickers */}
+      {showFromPicker && renderTokenPicker(true, () => setShowFromPicker(false))}
+      {showToPicker && renderTokenPicker(false, () => setShowToPicker(false))}
+
+      {/* Confirmation Modal */}
+      {showConfirm && quote && fromToken && toToken && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center animate-fade-in">
+          <div className="bg-[#0c1929] border border-[#1a3a5c] w-full max-w-md rounded-2xl p-6 mx-4">
+            <h3 className="font-bold text-lg text-white text-center mb-4">Confirm Swap</h3>
+            
+            <div className="space-y-3 mb-5">
+              <div className="flex justify-between items-center p-3 rounded-xl bg-[#1a2a3a]">
+                <span className="text-sm text-gray-400">You pay</span>
+                <span className="text-sm font-bold text-white">{fromAmount} {fromToken.symbol}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 rounded-xl bg-[#1a2a3a]">
+                <span className="text-sm text-gray-400">You receive</span>
+                <span className="text-sm font-bold text-white">{toAmount} {toToken.symbol}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 rounded-xl bg-[#1a2a3a]">
+                <span className="text-sm text-gray-400">Rate</span>
+                <span className="text-xs text-gray-300">1 {fromToken.symbol} ≈ {(parseFloat(toAmount) / parseFloat(fromAmount)).toFixed(4)} {toToken.symbol}</span>
+              </div>
+              <div className="flex justify-between items-center p-3 rounded-xl bg-[#1a2a3a]">
+                <span className="text-sm text-gray-400">Price Impact</span>
+                <span className={`text-xs ${parseFloat(quote.priceImpactPct) * 100 > 1 ? 'text-red-400' : 'text-green-400'}`}>{(parseFloat(quote.priceImpactPct) * 100).toFixed(3)}%</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-gray-500 text-center mb-4">
+              This transaction is irreversible. Make sure the details are correct.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                disabled={isSwapping}
+                className="py-3 rounded-xl bg-[#1a2a3a] border border-[#2a3a4a] text-sm text-gray-300 font-medium hover:bg-[#2a3a4a] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeConfirmedSwap}
+                disabled={isSwapping}
+                className="py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-sm text-white font-semibold hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isSwapping ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Confirm Swap'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Screen */}
+      {txSignature && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center animate-fade-in">
+          <div className="bg-[#0c1929] border border-[#1a3a5c] w-full max-w-md rounded-2xl p-6 mx-4 text-center">
+            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h3 className="font-bold text-xl text-white mb-2">Swap Successful!</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              {fromAmount} {fromToken?.symbol} → {toAmount} {toToken?.symbol}
+            </p>
+            <div className="bg-[#1a2a3a] rounded-xl p-3 mb-4">
+              <p className="text-[10px] text-gray-500 mb-1">Transaction Signature</p>
+              <p className="text-xs font-mono text-gray-300 break-all">{txSignature}</p>
+            </div>
+            <a
+              href={`https://solscan.io/tx/${txSignature}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full py-3 rounded-xl bg-[#1a2a3a] border border-[#2a3a4a] text-sm text-cyan-400 font-medium mb-3 hover:border-cyan-500/50 transition-all"
+            >
+              View on Solscan ↗
+            </a>
+            <button
+              onClick={resetSwap}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-sm text-white font-semibold hover:from-cyan-500 hover:to-blue-500 transition-all"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
