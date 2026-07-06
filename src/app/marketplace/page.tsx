@@ -57,23 +57,23 @@ export default function MarketplacePage() {
   const paginatedAgents = filteredAgents.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
 
   return (
-    <div className="min-h-screen py-12">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen py-6 sm:py-12">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between mb-8"
+          className="flex items-center justify-between mb-6"
         >
           <div>
-            <h1 className="text-4xl font-bold gradient-text mb-2">Marketplace</h1>
-            <p className="text-gray-400 text-sm">Browse AI agents. Free agents can be used without wallet.</p>
+            <h1 className="text-2xl sm:text-4xl font-bold gradient-text mb-1">Marketplace</h1>
+            <p className="text-gray-400 text-xs sm:text-sm">Browse AI agents. Free agents need no wallet.</p>
           </div>
-          <span className="text-sm text-gray-500">{filteredAgents.length} agents</span>
+          <span className="text-xs text-gray-500">{filteredAgents.length} agents</span>
         </motion.div>
 
         {/* Category Tabs */}
-        <div className="flex gap-1.5 mb-6 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex gap-1.5 mb-5 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0" style={{ scrollbarWidth: 'none' }}>
           {CATEGORIES.map((cat) => {
             const count = cat.id === 'all' ? agents.length : agents.filter(a => a.specialization === cat.id).length
             return (
@@ -104,7 +104,7 @@ export default function MarketplacePage() {
 
         {/* Agent Grid */}
         {!loading && paginatedAgents.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4">
             {paginatedAgents.map((agent, i) => (
               <motion.div
                 key={agent.id}
@@ -113,45 +113,45 @@ export default function MarketplacePage() {
                 transition={{ delay: i * 0.03 }}
               >
                 <Link href={`/agent/${agent.id}`} className="block h-full">
-                  <div className="glass-card p-4 card-hover group h-full flex flex-col">
-                    <div className="flex items-start justify-between mb-2">
+                  <div className="glass-card p-3 sm:p-4 card-hover group h-full flex flex-col">
+                    <div className="flex items-start justify-between mb-1 sm:mb-2">
                       <div className="min-w-0">
-                        <h3 className="text-sm font-bold text-white group-hover:text-primary-300 transition-colors line-clamp-1">
+                        <h3 className="text-xs sm:text-sm font-bold text-white group-hover:text-primary-300 transition-colors line-clamp-1">
                           {agent.name}
                         </h3>
-                        <p className="text-xs text-gray-400 capitalize">{agent.specialization}</p>
+                        <p className="text-[10px] sm:text-xs text-gray-400 capitalize">{agent.specialization}</p>
                       </div>
                       {agent.rating > 0 && (
-                        <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 flex-shrink-0">
-                          <FaStar className="text-yellow-400 text-[9px]" />
-                          <span className="text-[10px] text-yellow-300">{agent.rating}</span>
+                        <div className="flex items-center gap-0.5 px-1 sm:px-1.5 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 flex-shrink-0 ml-1">
+                          <FaStar className="text-yellow-400 text-[8px] sm:text-[9px]" />
+                          <span className="text-[9px] sm:text-[10px] text-yellow-300">{agent.rating}</span>
                         </div>
                       )}
                     </div>
 
-                    <p className="text-xs text-gray-500 mb-3 line-clamp-2 flex-1">{agent.description}</p>
+                    <p className="text-[10px] sm:text-xs text-gray-500 mb-2 sm:mb-3 line-clamp-2 flex-1">{agent.description}</p>
 
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
-                        <HiLightningBolt className="text-accent-cyan text-[9px]" />
-                        <span className="text-[10px] text-gray-300 capitalize">{agent.aiModel}</span>
+                    <div className="flex items-center gap-1 sm:gap-2 mb-2 sm:mb-3">
+                      <div className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+                        <HiLightningBolt className="text-accent-cyan text-[8px] sm:text-[9px]" />
+                        <span className="text-[9px] sm:text-[10px] text-gray-300 capitalize">{agent.aiModel}</span>
                       </div>
                       {agent.price === 0 && (
-                        <div className="px-1.5 py-0.5 rounded bg-green-500/10 border border-green-500/20">
-                          <span className="text-[10px] text-green-400">Free</span>
+                        <div className="px-1 sm:px-1.5 py-0.5 rounded bg-green-500/10 border border-green-500/20">
+                          <span className="text-[9px] sm:text-[10px] text-green-400">Free</span>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                      <div className="text-[10px] text-gray-500">
+                    <div className="flex items-center justify-between pt-1.5 sm:pt-2 border-t border-white/5">
+                      <div className="text-[9px] sm:text-[10px] text-gray-500">
                         <span className="text-white font-medium">
                           {agent.price === 0 ? 'Free' : `${agent.price} SOL`}
                         </span>
-                        <span className="mx-1">·</span>
-                        <span>{agent.totalRequests.toLocaleString()} req</span>
+                        <span className="mx-0.5 sm:mx-1">·</span>
+                        <span>{agent.totalRequests} req</span>
                       </div>
-                      <span className="text-[10px] text-primary-400 group-hover:text-primary-300">→</span>
+                      <span className="text-[9px] sm:text-[10px] text-primary-400 group-hover:text-primary-300">→</span>
                     </div>
                   </div>
                 </Link>
