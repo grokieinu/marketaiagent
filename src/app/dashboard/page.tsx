@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { FaRobot, FaHistory, FaStar, FaCoins, FaEdit, FaSave, FaTimes, FaToggleOn, FaToggleOff } from 'react-icons/fa'
+import { FaRobot, FaHistory, FaStar, FaCoins, FaEdit, FaSave, FaTimes, FaToggleOn, FaToggleOff, FaTrash } from 'react-icons/fa'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletButton } from '@/components/WalletButton'
 import Link from 'next/link'
@@ -96,6 +96,25 @@ export default function DashboardPage() {
     const data = await res.json()
     if (data.success) {
       setMyAgents((prev) => prev.map((a) => a.id === agent.id ? { ...a, isActive: !a.isActive } : a))
+    }
+  }
+
+  const deleteAgent = async (agentId: string) => {
+    if (!publicKey) return
+    if (!confirm('Are you sure you want to delete this agent? This cannot be undone.')) return
+
+    const res = await fetch('/api/agent/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, wallet: publicKey.toBase58() }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      setMyAgents((prev) => prev.filter((a) => a.id !== agentId))
+      setSaveMsg('Agent deleted')
+      setTimeout(() => setSaveMsg(''), 2000)
+    } else {
+      setSaveMsg(data.error || 'Failed to delete')
     }
   }
 
@@ -221,6 +240,9 @@ export default function DashboardPage() {
                               </button>
                               <button onClick={() => startEdit(agent)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
                                 <FaEdit />
+                              </button>
+                              <button onClick={() => deleteAgent(agent.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10" title="Delete agent">
+                                <FaTrash />
                               </button>
                             </div>
                           </div>
