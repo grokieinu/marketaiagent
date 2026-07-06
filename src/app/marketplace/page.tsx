@@ -73,25 +73,48 @@ export default function MarketplacePage() {
         </motion.div>
 
         {/* Category Tabs */}
-        <div className="flex gap-1 mb-4 overflow-x-auto pb-2 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
-          {CATEGORIES.map((cat) => {
-            const count = cat.id === 'all' ? agents.length : agents.filter(a => a.specialization === cat.id).length
-            return (
-              <button
-                key={cat.id}
-                onClick={() => { setActiveCategory(cat.id); setPage(1) }}
-                className={`flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-all ${
-                  activeCategory === cat.id
-                    ? 'bg-primary-500/20 text-primary-300 border border-primary-500/30'
-                    : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
-                }`}
-              >
-                <span className="text-xs sm:text-sm">{cat.icon}</span>
-                <span>{cat.label}</span>
-                {count > 0 && <span className="text-[9px] text-gray-500">({count})</span>}
-              </button>
-            )
-          })}
+        {/* Category Filter - Dropdown on mobile, tabs on desktop */}
+        <div className="mb-4">
+          {/* Mobile: Dropdown */}
+          <div className="sm:hidden">
+            <select
+              value={activeCategory}
+              onChange={(e) => { setActiveCategory(e.target.value); setPage(1) }}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-primary-500/50 appearance-none"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em' }}
+            >
+              {CATEGORIES.map((cat) => {
+                const count = cat.id === 'all' ? agents.length : agents.filter(a => a.specialization === cat.id).length
+                return (
+                  <option key={cat.id} value={cat.id} className="bg-dark-900">
+                    {cat.icon} {cat.label} ({count})
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          {/* Desktop: Tabs */}
+          <div className="hidden sm:flex gap-1.5 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+            {CATEGORIES.map((cat) => {
+              const count = cat.id === 'all' ? agents.length : agents.filter(a => a.specialization === cat.id).length
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => { setActiveCategory(cat.id); setPage(1) }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                    activeCategory === cat.id
+                      ? 'bg-primary-500/20 text-primary-300 border border-primary-500/30'
+                      : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
+                  }`}
+                >
+                  <span>{cat.icon}</span>
+                  <span>{cat.label}</span>
+                  {count > 0 && <span className="text-[10px] text-gray-500">({count})</span>}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {/* Loading */}
