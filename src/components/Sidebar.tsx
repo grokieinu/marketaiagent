@@ -144,9 +144,6 @@ export default function Sidebar() {
           </aside>
         </>
       )}
-
-      {/* Mobile top spacing */}
-      <div className="lg:hidden h-14" />
     </>
   )
 }

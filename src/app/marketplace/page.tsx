@@ -57,38 +57,38 @@ export default function MarketplacePage() {
   const paginatedAgents = filteredAgents.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
 
   return (
-    <div className="min-h-screen py-6 sm:py-12">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+    <div className="min-h-screen pt-2 pb-6 sm:py-12">
+      <div className="px-2 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between mb-6"
+          className="flex items-center justify-between mb-4"
         >
           <div>
-            <h1 className="text-2xl sm:text-4xl font-bold gradient-text mb-1">Marketplace</h1>
-            <p className="text-gray-400 text-xs sm:text-sm">Browse AI agents. Free agents need no wallet.</p>
+            <h1 className="text-xl sm:text-3xl font-bold gradient-text">Marketplace</h1>
+            <p className="text-gray-400 text-[11px] sm:text-sm">Browse AI agents. Free agents need no wallet.</p>
           </div>
-          <span className="text-xs text-gray-500">{filteredAgents.length} agents</span>
+          <span className="text-[10px] sm:text-xs text-gray-500">{filteredAgents.length} agents</span>
         </motion.div>
 
         {/* Category Tabs */}
-        <div className="flex gap-1.5 mb-5 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex gap-1 mb-4 overflow-x-auto pb-2 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
           {CATEGORIES.map((cat) => {
             const count = cat.id === 'all' ? agents.length : agents.filter(a => a.specialization === cat.id).length
             return (
               <button
                 key={cat.id}
                 onClick={() => { setActiveCategory(cat.id); setPage(1) }}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                className={`flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-all ${
                   activeCategory === cat.id
                     ? 'bg-primary-500/20 text-primary-300 border border-primary-500/30'
-                    : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white'
+                    : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
                 }`}
               >
-                <span>{cat.icon}</span>
+                <span className="text-xs sm:text-sm">{cat.icon}</span>
                 <span>{cat.label}</span>
-                {count > 0 && <span className="text-[10px] text-gray-500">({count})</span>}
+                {count > 0 && <span className="text-[9px] text-gray-500">({count})</span>}
               </button>
             )
           })}
@@ -104,7 +104,7 @@ export default function MarketplacePage() {
 
         {/* Agent Grid */}
         {!loading && paginatedAgents.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3">
             {paginatedAgents.map((agent, i) => (
               <motion.div
                 key={agent.id}
